@@ -1,0 +1,106 @@
+import bpy
+import mathutils
+
+thickness = 1.4
+
+hinge_width = 0.6
+hinge_thickness = 0.12
+hinge_gap_w = 0.1
+hinge_chamfer_ang = 45
+hinge_empty_ratio = 0.9
+hinge_connection_min_w = 2
+
+base_len = 54
+base_wdt = 34
+
+fold_len_ratio = 11/54
+
+
+
+def create_cube(x_len, y_len, z_len, location=(0, 0, 0)):
+    """
+    Create a cube with the given dimensions.
+    Note: Blender's default cube is 2x2x2 so we adjust its scale accordingly.
+    """
+    bpy.ops.mesh.primitive_cube_add(enter_editmode=False, location=location)
+    cube = bpy.context.active_object
+    cube.scale = (x_len / 2, y_len / 2, z_len / 2)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    return cube
+
+def create_hinge(start_pos,end_pos,hinge_width,hinge_thickness,hinge_gap_w,hinge_chamfer_ang,thickness):
+    hinge_empty_ratio = 0.9
+    hinge_connection_min_w = 2
+    v_start = mathutils.Vector(start_pos)
+    v_end = mathutils.Vector(end_pos)
+    v_full_hinge = v_end-v_start
+    len_hinge = v_full_hinge.length
+    
+    gap_obj = create_cube(len_hinge, hinge_gap_w, thickness, location=(0, 0, thickness/2))
+    gap_obj_copy = create_cube(len_hinge, hinge_gap_w, thickness, location=(0, 0, thickness/2))
+    hinge_obj = create_cube(len_hinge, hinge_width, hinge_thickness, location=(0, 0, thickness-hinge_thickness/2))
+    bool_mod = gap_obj.modifiers.new(name="create_profile", type='BOOLEAN')
+    bool_mod.operation = 'UNION'
+    bool_mod.object = hinge_obj
+    bpy.context.view_layer.objects.active = gap_obj
+    bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+    new_edges = compare_boolean_union_edges(gap_obj_copy, hinge_obj, gap_obj, precision=6)
+    for edge in new_edges:
+        edge.location = (0, 0, -0.5)
+        bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    bpy.data.objects.remove(hinge_obj, do_unlink=True)
+    return gap_obj
+
+def get_world_edge_dict(obj, precision=6):
+    """
+    Given a mesh object, returns a dictionary where:
+      - The keys are sorted tuples of the two endpoint coordinates in world space,
+        with each coordinate rounded to the specified precision.
+      - The values are the corresponding mesh edge objects.
+    
+    This canonical representation ensures that edges can be compared regardless of
+    the order of their vertices.
+    """
+    world_matrix = obj.matrix_world
+    mesh = obj.data
+    
+    # Get world-space coordinates for each vertex.
+    vertices = [world_matrix @ v.co for v in mesh.vertices]
+    
+    edge_dict = {}
+    for edge in mesh.edges:
+        # Get the two vertices of the edge.
+        v1 = vertices[edge.vertices[0]]
+        v2 = vertices[edge.vertices[1]]
+        # Round coordinates for precision.
+        coord1 = (round(v1.x, precision), round(v1.y, precision), round(v1.z, precision))
+        coord2 = (round(v2.x, precision), round(v2.y, precision), round(v2.z, precision))
+        # Sort the two endpoints to get a canonical representation.
+        sorted_coords = tuple(sorted([coord1, coord2]))
+        edge_dict[sorted_coords] = edge
+    return edge_dict
+
+def compare_boolean_union_edges(objA, objB, union_obj, precision=6):
+    """
+    Given two original mesh objects (objA and objB) and a third object (union_obj)
+    that is the result of a boolean union of objA and objB, this function compares
+    their edges and returns a list of edge objects from the union object that appear
+    only in the union (i.e. edges that are not present in either objA or objB).
+    
+    Edges are compared based on their world-space vertex coordinates (with rounding).
+    """
+    # Build dictionaries for the original objects.
+    edges_A = get_world_edge_dict(objA, precision)
+    edges_B = get_world_edge_dict(objB, precision)
+    original_edge_keys = set(edges_A.keys()).union(edges_B.keys())
+    
+    # Build dictionary for the union object.
+    union_edges = get_world_edge_dict(union_obj, precision)
+    
+    # Identify the keys (canonical edges) that exist only in the union object.
+    unique_edge_keys = set(union_edges.keys()).difference(original_edge_keys)
+    
+    # Return the corresponding edge objects from the union object.
+    return [union_edges[key] for key in unique_edge_keys]
+    
+create_hinge((-10,0,0),(10,0,0),hinge_width,hinge_thickness,hinge_gap_w,hinge_chamfer_ang,thickness)

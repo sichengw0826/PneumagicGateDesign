@@ -1,0 +1,21 @@
+# read design
+# read_verilog counter.v
+read_verilog memory.v
+hierarchy -check
+
+# high-level synthesis
+proc; opt; fsm; opt; memory; opt
+
+# low-level synthesis
+techmap; opt
+
+# map to target architecture
+dfflibmap -liberty cmos_cells.lib
+abc -liberty cmos_cells.lib
+clean
+
+# split larger signals
+splitnets -ports; opt
+
+show -prefix design -lib cmos_cells.v -format png
+write_json design.json

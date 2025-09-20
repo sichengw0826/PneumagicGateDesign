@@ -1,0 +1,77 @@
+component_name: XOR
+nodes:
+ - name: const_sup
+   num: [0]
+   type: SUP
+ - name: nrc
+   num: [1, 2, 3, 4]
+   type: FOLD_NC
+ - name: nro
+   num: [1, 2, 3, 4]
+   type: FOLD_NO
+ - name: jct
+   num: [1, 2, 3, 4]
+   type: JCT
+ - name: out
+   num: [0]
+   type: OUT
+ - name: gnd
+   num: [0]
+   type: GND
+edges_pneumatic:
+ - source: const_sup0
+   target: jct1
+ - source: jct1
+   target: nro1
+ - source: jct1
+   target: nro2
+ - source: nro1
+   target: jct2
+ - source: nro2
+   target: jct2
+ - source: nro3
+   target: nro4
+ - source: nro4
+   target: gnd0
+ - source: jct2
+   target: jct3
+ - source: jct3
+   target: nrc2
+ - source: jct3
+   target: nrc1
+ - source: nrc2
+   target: jct4
+ - source: nrc1
+   target: jct4
+ - source: jct4
+   target: out0
+ - source: jct4
+   target: nrc4
+ - source: nrc4
+   target: nrc3
+ - source: nrc3
+   target: gnd0
+ - source: jct4
+   target: nro3
+edges_coupled:
+ - source: nro1
+   target: nro3
+ - source: nro2
+   target: nro4
+ - source: nrc1
+   target: nrc3
+ - source: nrc2
+   target: nrc4
+edges_opposite:
+ - source: nro4
+   target: nrc1
+ - source: nro3
+   target: nrc2
+
+# Design synthesis information
+base_channel_width: 2.5 #mm
+fold_angle: 120 #degrees
+u_turn_min_sep: 2 #mm
+default_padding: 1 #mm
+IO_side: 1  # Use following definition: assume normally opened side on the top, 1 means supply is on the right, 0 therwise
+linkage_dist: 1  # Defualt distance between individual linkage within the gate
