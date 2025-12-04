@@ -191,7 +191,7 @@ def create_through_rec_hole(ctr,x_len,y_len,rot,target):
     hole_box = create_cube(x_len, y_len, hole_dz, location=(ctr[0], ctr[1], (max(z_list)+min(z_list))/2))
     return hole_box
 
-class CutFeatures:
+class BodyFeatures:
     # Class‐level flag indicating whether a removal operation has been committed
     isCommitted: bool = False
 
@@ -210,6 +210,21 @@ class CutFeatures:
         bpy.data.objects.remove(cutting_object, do_unlink=True)
 
         cls.isCommitted = True
+    
+    def commit_merger(cls, merge_object: bpy.types.Object, merging_object: bpy.types.Object) -> None:
+        """
+        Perform any removal logic here (e.g., Boolean difference),
+        then mark the operation as committed.
+        """
+        # Example: apply Boolean modifier (difference) on cut_object using cutting_object
+        mod = merge_object.modifiers.new(name="BooleanUni", type='BOOLEAN')
+        mod.operation = 'UNION'
+        mod.object = merging_object
+        bpy.context.view_layer.objects.active = merge_object
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+        bpy.data.objects.remove(merging_object, do_unlink=True)
+
+        cls.isCommitted = True
 """
 def commit_removal(cut_object, cutting_object):
     bool_mod = cut_object.modifiers.new(name="make_hole",type='BOOLEAN')
@@ -220,7 +235,7 @@ def commit_removal(cut_object, cutting_object):
     bpy.data.objects.remove(cutting_object, do_unlink=True)
 """
 
-class Hinge(CutFeatures):
+class Hinge(BodyFeatures):
     def __init__(self,startPt,endPt,segments,targetObject):
         """
         startPt, endPt: two 3D coordinates defining hinge endpoints
@@ -233,6 +248,7 @@ class Hinge(CutFeatures):
         self.targetObject = targetObject
     
 
+# Dimension Definitions
 # Dimension Definitions
 thickness = 1.4
 
@@ -261,6 +277,25 @@ cutting_list = []
 
 cutting_list.append(create_hinge(fin_start,find_end,hinge_width,hinge_thickness,hinge_gap_w,hinge_chamfer_ang,thickness))
 cutting_list.append(create_through_rec_hole(opening_ctr,5,14,0,base_sheet))
+cutting_list.append(TunnelCut(base_sheet,[0,0,0],[(0,0,0),(0,5,0),(0,8,0),(5,8,0),(7,8,0)]))
 
-for obj in cutting_list:
-    commit_removal(base_sheet, obj)
+def build_default_sheet():
+    """Generate the default sheet geometry with hinges and rectangular cutouts."""
+    fold_x = -(0.5-fold_len_ratio)*base_len
+    fin_start = mathutils.Vector((fold_x,-base_wdt/2*1.01,0))
+    find_end = mathutils.Vector((fold_x,base_wdt*(-0.5+fin_width_ratio),0))
+    opening_ctr = mathutils.Vector((fold_x,0.25*base_wdt,0))
+
+    base_sheet = create_cube(base_len, base_wdt, thickness, location=(0, 0, 0))
+    cutting_list = [
+        create_hinge(fin_start,find_end,hinge_width,hinge_thickness,hinge_gap_w,hinge_chamfer_ang,thickness),
+        create_through_rec_hole(opening_ctr,5,14,0,base_sheet),
+    ]
+
+    for obj in cutting_list:
+        commit_removal(base_sheet, obj)
+
+    return base_sheet
+
+if __name__ == "__main__":
+    build_default_sheet()

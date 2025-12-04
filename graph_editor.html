@@ -31,6 +31,8 @@
     <div class="row">
       <label>Component <input id="componentName" value="MyComponent" /></label>
       <label>Edge <select id="edgeType"><option value="pneumatic">pneumatic</option><option value="coupled">coupled</option><option value="opposite">opposite</option></select></label>
+      <button id="openBtn">Open YAML</button>
+      <button id="saveFileBtn">Save</button>
       <button id="saveBtn">Save YAML</button>
       <button id="clearBtn">Clear</button>
     </div>
@@ -51,9 +53,11 @@
     <g id="edges"></g>
     <g id="nodes"></g>
   </svg>
+  <input type="file" id="openFileInput" accept=".yaml,.yml" style="display:none" />
   <script>
     const S={nodes:[],edges:[],ctr:{},pending:null};
     const C=document.getElementById("canvas"),GN=document.getElementById("nodes"),GE=document.getElementById("edges"),ET=document.getElementById("edgeType");
+    let currentFileHandle = null; let currentFileName = null;
     function pt(e){const p=C.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(C.getScreenCTM().inverse());}
     document.getElementById("toolbox").addEventListener("dragstart",e=>{const t=e.target.closest(".tool");if(!t)return;e.dataTransfer.setData("text/plain",JSON.stringify({type:t.dataset.type,prefix:t.dataset.prefix,color:t.dataset.color}));});
     C.addEventListener("dragover",e=>e.preventDefault());
@@ -110,6 +114,125 @@
     C.addEventListener("click",()=>{ if(S.pending){ S.pending=null; hideTemp(); } });
 
     document.getElementById("clearBtn").addEventListener("click",()=>{ S.nodes=[]; S.edges=[]; S.ctr={}; S.pending=null; hideTemp(); render(); });
+    // --- YAML import/export helpers ---
+    function parseYAML(text){
+      const lines = text.split(/\r?\n/);
+      const res = { component_name: 'MyComponent', nodes: [], edges_pneumatic: [], edges_coupled: [], edges_opposite: [] };
+      let section = 'root';
+      let curGroup = null;
+      function flushGroup(){ if(curGroup){ res.nodes.push(curGroup); curGroup=null; } }
+      for(let raw of lines){
+        let line = raw.replace(/\t/g,'    ');
+        if(!line.trim()) continue;
+        const hash = line.indexOf(' #');
+        if(hash>=0) line = line.slice(0, hash);
+        if(/^component_name:\s*/.test(line)){
+          res.component_name = line.split(':')[1].trim();
+          continue;
+        }
+        if(/^nodes:/.test(line)){ section='nodes'; flushGroup(); continue; }
+        if(/^edges_pneumatic:/.test(line)){ section='edges_pneumatic'; flushGroup(); continue; }
+        if(/^edges_coupled:/.test(line)){ section='edges_coupled'; flushGroup(); continue; }
+        if(/^edges_opposite:/.test(line)){ section='edges_opposite'; flushGroup(); continue; }
+        if(section==='nodes'){
+          if(/^-\s+name:\s*/.test(line.trim())){ flushGroup(); curGroup = { name: line.split(':')[1].trim(), type: '', nums: [] }; continue; }
+          if(/^[\s-]*type:\s*/.test(line.trim())){ if(curGroup) curGroup.type = line.split(':')[1].trim(); continue; }
+          if(/^[\s-]*num:\s*\[/.test(line.trim())){
+            if(curGroup){
+              const inside = line.substring(line.indexOf('[')+1, line.indexOf(']'));
+              const nums = inside.split(',').map(s=>s.trim()).filter(Boolean).map(s=>parseInt(s));
+              curGroup.nums = nums;
+            }
+            continue;
+          }
+          continue;
+        }
+        if(section==='edges_pneumatic' || section==='edges_coupled' || section==='edges_opposite'){
+          const arr = res[section];
+          if(/^-\s+source:\s*/.test(line.trim())){
+            const src = line.split(':')[1].trim();
+            arr.push({source: src, target: null});
+            continue;
+          }
+          if(/^target:\s*/.test(line.trim())){
+            if(arr.length>0){ arr[arr.length-1].target = line.split(':')[1].trim(); }
+            continue;
+          }
+          if(/^\s+target:\s*/.test(line.trim())){
+            if(arr.length>0){ arr[arr.length-1].target = line.split(':')[1].trim(); }
+            continue;
+          }
+          continue;
+        }
+      }
+      flushGroup();
+      return res;
+    }
+
+    function layoutNodes(){
+      const w = C.clientWidth || 1000; const h = C.clientHeight || 700;
+      const n = Math.max(1, S.nodes.length);
+      const cols = Math.ceil(Math.sqrt(n));
+      const rows = Math.ceil(n/cols);
+      const margin = 50; const sx = Math.max(80, (w - 2*margin) / Math.max(1, cols-1));
+      const sy = Math.max(80, (h - 2*margin) / Math.max(1, rows-1));
+      S.nodes.forEach((node, i)=>{ const r=Math.floor(i/cols); const c=i%cols; node.x = margin + c*sx; node.y = margin + r*sy; });
+    }
+
+    function loadGraph(obj){
+      S.nodes = []; S.edges = []; S.ctr = {}; S.pending = null;
+      const nameInput = document.getElementById('componentName');
+      if(obj.component_name) nameInput.value = obj.component_name;
+      const groups = obj.nodes || [];
+      groups.forEach(g=>{
+        const prefix = g.name; const type = g.type; const nums = g.nums || [];
+        const maxNum = nums.reduce((a,b)=>isFinite(b)&&b>a?b:a, -Infinity);
+        nums.forEach(num=>{
+          const id = prefix + String(num);
+          S.nodes.push({ id, prefix, type, color: col(prefix), x: 0, y: 0 });
+        });
+        if(isFinite(maxNum)) S.ctr[prefix] = maxNum + 1; else S.ctr[prefix] = 1;
+      });
+      layoutNodes();
+      (obj.edges_pneumatic||[]).forEach(e=>{ if(e.source && e.target) addEdge(e.source, e.target, 'pneumatic'); });
+      (obj.edges_coupled||[]).forEach(e=>{ if(e.source && e.target) addEdge(e.source, e.target, 'coupled'); });
+      (obj.edges_opposite||[]).forEach(e=>{ if(e.source && e.target) addEdge(e.source, e.target, 'opposite'); });
+      render();
+    }
+
+    async function openYAML(){
+      currentFileHandle = null; currentFileName = null;
+      if(window.showOpenFilePicker){
+        try{
+          const [handle] = await window.showOpenFilePicker({ types:[{description:'YAML',accept:{'text/yaml':['.yaml','.yml'],'application/x-yaml':['.yaml','.yml']}}] });
+          const file = await handle.getFile(); const text = await file.text();
+          currentFileHandle = handle; currentFileName = file.name;
+          const obj = parseYAML(text); loadGraph(obj);
+          return;
+        }catch(e){ }
+      }
+      const inp = document.getElementById('openFileInput');
+      inp.value = '';
+      inp.onchange = async () => {
+        const f = inp.files && inp.files[0]; if(!f) return;
+        currentFileHandle = null; currentFileName = f.name;
+        const text = await f.text(); const obj = parseYAML(text); loadGraph(obj);
+      };
+      inp.click();
+    }
+
+    async function saveOriginal(){
+      const text = toYAML();
+      if(currentFileHandle && currentFileHandle.createWritable){
+        try{ const w = await currentFileHandle.createWritable(); await w.write(text); await w.close(); return; }
+        catch(e){ }
+      }
+      const name = (currentFileName && currentFileName.endsWith('.yaml')) ? currentFileName : (currentFileName||'graph')+'.yaml';
+      const blob=new Blob([text],{type:'text/yaml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{document.body.removeChild(a); URL.revokeObjectURL(url);},0);
+    }
+
+    document.getElementById('openBtn').addEventListener('click', openYAML);
+    document.getElementById('saveFileBtn').addEventListener('click', saveOriginal);
     function toYAML(){
       const comp=(document.getElementById("componentName").value||"MyComponent");
       const groups=new Map();
@@ -148,3 +271,5 @@
   </script>
 </body>
 </html>
+
+
