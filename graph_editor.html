@@ -1,0 +1,275 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Graph Editor</title>
+  <style>
+    body{margin:0;display:grid;grid-template-columns:240px 1fr;grid-template-rows:auto 1fr;height:100vh;background:#0f1220;color:#e8ebff;font-family:Segoe UI,Roboto,Arial,sans-serif}
+    header{grid-column:1/-1;display:flex;gap:8px;align-items:center;padding:8px 12px;background:#161a2d;border-bottom:1px solid #2a3050}
+    .side{padding:10px;background:#161a2d;border-right:1px solid #2a3050;overflow:auto}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    input,select,button{background:#0d1020;border:1px solid #2a3050;color:#e8ebff;border-radius:6px;padding:6px 8px}
+    button{background:#7aa2ff;color:#0b0e1a;border:none}
+    .tool{display:flex;gap:8px;align-items:center;padding:6px;background:#0d1020;border:1px solid #2a3050;border-radius:8px;margin:6px 0;cursor:grab}
+    .dot{width:16px;height:16px;border-radius:50%;border:2px solid #0003}
+    .hint{color:#a7b0d3;font-size:12px;margin-top:8px}
+    svg{width:100%;height:100%;background:#0b0e1a}
+    .node text{fill:#d7dcff;font-size:11px;font-weight:600;pointer-events:none}
+    .node circle{stroke:#0003;stroke-width:2}
+    .edge{stroke-width:3;cursor:pointer}
+    .pneumatic{stroke:#7aa2ff}
+    .coupled{stroke:#ffcc66;stroke-dasharray:8 6}
+    .opposite{stroke:#ff6b6b;stroke-dasharray:4 4}
+    .temp{stroke:#a7b0d3;stroke-width:2;stroke-dasharray:5 5}
+  </style>
+</head>
+<body>
+  <header>
+    <div style="font-weight:700">Graph Editor</div>
+    <div style="flex:1"></div>
+    <div class="row">
+      <label>Component <input id="componentName" value="MyComponent" /></label>
+      <label>Edge <select id="edgeType"><option value="pneumatic">pneumatic</option><option value="coupled">coupled</option><option value="opposite">opposite</option></select></label>
+      <button id="openBtn">Open YAML</button>
+      <button id="saveFileBtn">Save</button>
+      <button id="saveBtn">Save YAML</button>
+      <button id="clearBtn">Clear</button>
+    </div>
+  </header>
+  <div class="side">
+    <div style="font-size:12px;letter-spacing:.08em;color:#a7b0d3;text-transform:uppercase;margin:6px 0">Toolbox</div>
+    <div id="toolbox">
+      <div class="tool" draggable="true" data-type="SUP" data-prefix="const_sup" data-color="#ff8c00"><div class="dot" style="background:#ff8c00"></div>SUP</div>
+      <div class="tool" draggable="true" data-type="JCT" data-prefix="jct" data-color="#4dd0e1"><div class="dot" style="background:#4dd0e1"></div>JCT</div>
+      <div class="tool" draggable="true" data-type="FOLD_NO" data-prefix="nro" data-color="#7e57c2"><div class="dot" style="background:#7e57c2"></div>FOLD_NO</div>
+      <div class="tool" draggable="true" data-type="FOLD_NC" data-prefix="nrc" data-color="#ef5350"><div class="dot" style="background:#ef5350"></div>FOLD_NC</div>
+      <div class="tool" draggable="true" data-type="OUT" data-prefix="out" data-color="#66bb6a"><div class="dot" style="background:#66bb6a"></div>OUT</div>
+      <div class="tool" draggable="true" data-type="GND" data-prefix="gnd" data-color="#bdbdbd"><div class="dot" style="background:#bdbdbd"></div>GND</div>
+    </div>
+    <div class="hint">Drag to canvas. Click two nodes to connect (uses selected edge type). Double-click a node or edge to delete.</div>
+  </div>
+  <svg id="canvas">
+    <g id="edges"></g>
+    <g id="nodes"></g>
+  </svg>
+  <input type="file" id="openFileInput" accept=".yaml,.yml" style="display:none" />
+  <script>
+    const S={nodes:[],edges:[],ctr:{},pending:null};
+    const C=document.getElementById("canvas"),GN=document.getElementById("nodes"),GE=document.getElementById("edges"),ET=document.getElementById("edgeType");
+    let currentFileHandle = null; let currentFileName = null;
+    function pt(e){const p=C.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(C.getScreenCTM().inverse());}
+    document.getElementById("toolbox").addEventListener("dragstart",e=>{const t=e.target.closest(".tool");if(!t)return;e.dataTransfer.setData("text/plain",JSON.stringify({type:t.dataset.type,prefix:t.dataset.prefix,color:t.dataset.color}));});
+    C.addEventListener("dragover",e=>e.preventDefault());
+    C.addEventListener("drop",e=>{e.preventDefault();const d=e.dataTransfer.getData("text/plain");if(!d)return;const o=JSON.parse(d),p=pt(e);addNode(o.prefix,o.type,o.color,p.x,p.y);render();});
+
+    function next(prefix){const z=new Set(["const_sup","out","gnd"]);if(!(prefix in S.ctr))S.ctr[prefix]=z.has(prefix)?0:1;const i=S.ctr[prefix];S.ctr[prefix]=i+1;return i;}
+    function addNode(prefix,type,color,x,y){const id=prefix+next(prefix);S.nodes.push({id:id,prefix:prefix,type:type,color:color,x:x,y:y});return id;}
+    function addEdge(s,t,k){if(s===t)return;const id=s+"__"+t+"__"+k;if(S.edges.some(e=>e.id===id))return;S.edges.push({id:id,source:s,target:t,kind:k});}
+    function rmNode(id){S.nodes=S.nodes.filter(n=>n.id!==id);S.edges=S.edges.filter(e=>e.source!==id&&e.target!==id);}    
+    function rmEdge(id){S.edges=S.edges.filter(e=>e.id!==id);}    
+    function col(p){const m={const_sup:"#ff8c00",jct:"#4dd0e1",nro:"#7e57c2",nrc:"#ef5350",out:"#66bb6a",gnd:"#bdbdbd"};return m[p]||"#ccc";}
+    function render(){
+      GE.innerHTML="";
+      S.edges.forEach(e=>{
+        const s=S.nodes.find(n=>n.id===e.source),t=S.nodes.find(n=>n.id===e.target);
+        if(!s||!t)return;
+        const L=document.createElementNS("http://www.w3.org/2000/svg","line");
+        L.setAttribute("x1",s.x);L.setAttribute("y1",s.y);
+        L.setAttribute("x2",t.x);L.setAttribute("y2",t.y);
+        L.setAttribute("class","edge "+e.kind);
+        L.addEventListener("dblclick",()=>{rmEdge(e.id);render();});
+        GE.appendChild(L);
+      });
+
+      GN.innerHTML="";
+      S.nodes.forEach(n=>{
+        const g=document.createElementNS("http://www.w3.org/2000/svg","g");
+        g.setAttribute("class","node");
+        g.setAttribute("transform","translate("+n.x+","+n.y+")");
+        const c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+        c.setAttribute("r",12);c.setAttribute("fill",n.color||col(n.prefix));
+        const tx=document.createElementNS("http://www.w3.org/2000/svg","text");
+        tx.setAttribute("text-anchor","middle");tx.setAttribute("dy","4");tx.textContent=n.id;
+
+        g.addEventListener("click",ev=>{
+          ev.stopPropagation();
+          if(!S.pending){S.pending=n.id;showTemp(n.x,n.y);} else { addEdge(S.pending,n.id,ET.value); S.pending=null; hideTemp(); render(); }
+        });
+
+        let d=false,ox=0,oy=0;
+        g.addEventListener("mousedown",ev=>{d=true;const P=pt(ev);ox=P.x-n.x;oy=P.y-n.y;});
+        window.addEventListener("mousemove",ev=>{if(!d)return;const P=pt(ev);n.x=P.x-ox;n.y=P.y-oy;render();});
+        window.addEventListener("mouseup",()=>d=false);
+
+        g.addEventListener("dblclick",ev=>{ev.stopPropagation();rmNode(n.id);render();});
+        g.appendChild(c);g.appendChild(tx);GN.appendChild(g);
+      });
+    }
+
+    let TL=null;
+    function showTemp(x,y){ hideTemp(); TL=document.createElementNS("http://www.w3.org/2000/svg","line"); TL.setAttribute("class","temp"); TL.setAttribute("x1",x); TL.setAttribute("y1",y); TL.setAttribute("x2",x); TL.setAttribute("y2",y); GE.appendChild(TL); }
+    function hideTemp(){ if(TL&&TL.parentNode) TL.parentNode.removeChild(TL); TL=null; }
+    C.addEventListener("mousemove",e=>{ if(!TL||!S.pending)return; const P=pt(e); TL.setAttribute("x2",P.x); TL.setAttribute("y2",P.y); });
+    C.addEventListener("click",()=>{ if(S.pending){ S.pending=null; hideTemp(); } });
+
+    document.getElementById("clearBtn").addEventListener("click",()=>{ S.nodes=[]; S.edges=[]; S.ctr={}; S.pending=null; hideTemp(); render(); });
+    // --- YAML import/export helpers ---
+    function parseYAML(text){
+      const lines = text.split(/\r?\n/);
+      const res = { component_name: 'MyComponent', nodes: [], edges_pneumatic: [], edges_coupled: [], edges_opposite: [] };
+      let section = 'root';
+      let curGroup = null;
+      function flushGroup(){ if(curGroup){ res.nodes.push(curGroup); curGroup=null; } }
+      for(let raw of lines){
+        let line = raw.replace(/\t/g,'    ');
+        if(!line.trim()) continue;
+        const hash = line.indexOf(' #');
+        if(hash>=0) line = line.slice(0, hash);
+        if(/^component_name:\s*/.test(line)){
+          res.component_name = line.split(':')[1].trim();
+          continue;
+        }
+        if(/^nodes:/.test(line)){ section='nodes'; flushGroup(); continue; }
+        if(/^edges_pneumatic:/.test(line)){ section='edges_pneumatic'; flushGroup(); continue; }
+        if(/^edges_coupled:/.test(line)){ section='edges_coupled'; flushGroup(); continue; }
+        if(/^edges_opposite:/.test(line)){ section='edges_opposite'; flushGroup(); continue; }
+        if(section==='nodes'){
+          if(/^-\s+name:\s*/.test(line.trim())){ flushGroup(); curGroup = { name: line.split(':')[1].trim(), type: '', nums: [] }; continue; }
+          if(/^[\s-]*type:\s*/.test(line.trim())){ if(curGroup) curGroup.type = line.split(':')[1].trim(); continue; }
+          if(/^[\s-]*num:\s*\[/.test(line.trim())){
+            if(curGroup){
+              const inside = line.substring(line.indexOf('[')+1, line.indexOf(']'));
+              const nums = inside.split(',').map(s=>s.trim()).filter(Boolean).map(s=>parseInt(s));
+              curGroup.nums = nums;
+            }
+            continue;
+          }
+          continue;
+        }
+        if(section==='edges_pneumatic' || section==='edges_coupled' || section==='edges_opposite'){
+          const arr = res[section];
+          if(/^-\s+source:\s*/.test(line.trim())){
+            const src = line.split(':')[1].trim();
+            arr.push({source: src, target: null});
+            continue;
+          }
+          if(/^target:\s*/.test(line.trim())){
+            if(arr.length>0){ arr[arr.length-1].target = line.split(':')[1].trim(); }
+            continue;
+          }
+          if(/^\s+target:\s*/.test(line.trim())){
+            if(arr.length>0){ arr[arr.length-1].target = line.split(':')[1].trim(); }
+            continue;
+          }
+          continue;
+        }
+      }
+      flushGroup();
+      return res;
+    }
+
+    function layoutNodes(){
+      const w = C.clientWidth || 1000; const h = C.clientHeight || 700;
+      const n = Math.max(1, S.nodes.length);
+      const cols = Math.ceil(Math.sqrt(n));
+      const rows = Math.ceil(n/cols);
+      const margin = 50; const sx = Math.max(80, (w - 2*margin) / Math.max(1, cols-1));
+      const sy = Math.max(80, (h - 2*margin) / Math.max(1, rows-1));
+      S.nodes.forEach((node, i)=>{ const r=Math.floor(i/cols); const c=i%cols; node.x = margin + c*sx; node.y = margin + r*sy; });
+    }
+
+    function loadGraph(obj){
+      S.nodes = []; S.edges = []; S.ctr = {}; S.pending = null;
+      const nameInput = document.getElementById('componentName');
+      if(obj.component_name) nameInput.value = obj.component_name;
+      const groups = obj.nodes || [];
+      groups.forEach(g=>{
+        const prefix = g.name; const type = g.type; const nums = g.nums || [];
+        const maxNum = nums.reduce((a,b)=>isFinite(b)&&b>a?b:a, -Infinity);
+        nums.forEach(num=>{
+          const id = prefix + String(num);
+          S.nodes.push({ id, prefix, type, color: col(prefix), x: 0, y: 0 });
+        });
+        if(isFinite(maxNum)) S.ctr[prefix] = maxNum + 1; else S.ctr[prefix] = 1;
+      });
+      layoutNodes();
+      (obj.edges_pneumatic||[]).forEach(e=>{ if(e.source && e.target) addEdge(e.source, e.target, 'pneumatic'); });
+      (obj.edges_coupled||[]).forEach(e=>{ if(e.source && e.target) addEdge(e.source, e.target, 'coupled'); });
+      (obj.edges_opposite||[]).forEach(e=>{ if(e.source && e.target) addEdge(e.source, e.target, 'opposite'); });
+      render();
+    }
+
+    async function openYAML(){
+      currentFileHandle = null; currentFileName = null;
+      if(window.showOpenFilePicker){
+        try{
+          const [handle] = await window.showOpenFilePicker({ types:[{description:'YAML',accept:{'text/yaml':['.yaml','.yml'],'application/x-yaml':['.yaml','.yml']}}] });
+          const file = await handle.getFile(); const text = await file.text();
+          currentFileHandle = handle; currentFileName = file.name;
+          const obj = parseYAML(text); loadGraph(obj);
+          return;
+        }catch(e){ }
+      }
+      const inp = document.getElementById('openFileInput');
+      inp.value = '';
+      inp.onchange = async () => {
+        const f = inp.files && inp.files[0]; if(!f) return;
+        currentFileHandle = null; currentFileName = f.name;
+        const text = await f.text(); const obj = parseYAML(text); loadGraph(obj);
+      };
+      inp.click();
+    }
+
+    async function saveOriginal(){
+      const text = toYAML();
+      if(currentFileHandle && currentFileHandle.createWritable){
+        try{ const w = await currentFileHandle.createWritable(); await w.write(text); await w.close(); return; }
+        catch(e){ }
+      }
+      const name = (currentFileName && currentFileName.endsWith('.yaml')) ? currentFileName : (currentFileName||'graph')+'.yaml';
+      const blob=new Blob([text],{type:'text/yaml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{document.body.removeChild(a); URL.revokeObjectURL(url);},0);
+    }
+
+    document.getElementById('openBtn').addEventListener('click', openYAML);
+    document.getElementById('saveFileBtn').addEventListener('click', saveOriginal);
+    function toYAML(){
+      const comp=(document.getElementById("componentName").value||"MyComponent");
+      const groups=new Map();
+      S.nodes.forEach(n=>{ const num=parseInt(n.id.replace(n.prefix,"")); const key=n.prefix+"__"+n.type; if(!groups.has(key)) groups.set(key,{name:n.prefix,type:n.type,nums:new Set()}); groups.get(key).nums.add(num); });
+      const lines=[];
+      lines.push("component_name: "+comp);
+      lines.push("nodes:");
+      Array.from(groups.values()).forEach(g=>{ const nums=Array.from(g.nums).sort((a,b)=>a-b); lines.push(" - name: "+g.name); lines.push("   num: ["+nums.join(", ")+"]"); lines.push("   type: "+g.type); });
+      const kinds=[{k:"pneumatic",y:"edges_pneumatic"},{k:"coupled",y:"edges_coupled"},{k:"opposite",y:"edges_opposite"}];
+      kinds.forEach(K=>{ lines.push(K.y+":"); S.edges.filter(e=>e.kind===K.k).forEach(e=>{ lines.push(" - source: "+e.source); lines.push("   target: "+e.target); }); });
+      lines.push("");
+      lines.push("# Design synthesis information");
+      lines.push("base_channel_width: 2.5 #mm");
+      lines.push("fold_angle: 120 #degrees");
+      lines.push("u_turn_min_sep: 2 #mm");
+      lines.push("default_padding: 1 #mm");
+      lines.push("IO_side: 1  # Use following definition: assume normally opened side on the top, 1 means supply is on the right, 0 therwise");
+      lines.push("linkage_dist: 1  # Defualt distance between individual linkage within the gate");
+      return lines.join("\n");
+    }
+
+    async function saveYAML(){
+      const comp=(document.getElementById("componentName").value||"MyComponent").replace(/\s+/g,"_");
+      const text=toYAML();
+      if(window.showSaveFilePicker){
+        try{
+          const handle=await window.showSaveFilePicker({ suggestedName: comp+"_def.yaml", types:[{description:'YAML',accept:{'text/yaml':['.yaml','.yml']}}] });
+          const w=await handle.createWritable(); await w.write(text); await w.close(); return;
+        }catch(e){ /* fall through */ }
+      }
+      const blob=new Blob([text],{type:'text/yaml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=comp+"_def.yaml"; document.body.appendChild(a); a.click(); setTimeout(()=>{document.body.removeChild(a); URL.revokeObjectURL(url);},0);
+    }
+
+    document.getElementById("saveBtn").addEventListener("click",()=>{ saveYAML(); });
+    render();
+  </script>
+</body>
+</html>
+
+

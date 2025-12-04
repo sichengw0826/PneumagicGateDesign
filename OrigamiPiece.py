@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 class OrigamiPiece:
-    def __init__(self, associatedGraphEle, centroidPos=None, width=None, height=None):
+    def __init__(self, associatedGraphEle, centroidPos=None, width=None, height=None, actuatorW=None):
         """
         associatedGraphEle : anything (e.g. a node ID or an edge tuple)
             The graph element this piece is linked to.  (Required.)
@@ -17,6 +17,7 @@ class OrigamiPiece:
         self.centroidPos = centroidPos
         self.width = width
         self.height = height
+        self.actuatorW = actuatorW
 
     def draw(self, ax, **rect_kwargs):
         """

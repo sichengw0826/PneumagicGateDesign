@@ -1,0 +1,53 @@
+component_name: AND_def
+nodes:
+ - name: const_sup
+   num: [0]
+   type: SUP
+ - name: nrc
+   num: [1, 2]
+   type: FOLD_NC
+ - name: jct
+   num: [1]
+   type: JCT
+ - name: out
+   num: [0]
+   type: OUT
+ - name: gnd
+   num: [0]
+   type: GND
+ - name: nro
+   num: [2, 3]
+   type: FOLD_NO
+edges_pneumatic:
+ - source: const_sup1
+   target: const_sup0
+ - source: const_sup0
+   target: nrc1
+ - source: nrc1
+   target: nrc2
+ - source: nrc2
+   target: jct1
+ - source: jct1
+   target: nro2
+ - source: nro3
+   target: jct1
+ - source: out0
+   target: jct1
+ - source: gnd0
+   target: nro2
+ - source: gnd0
+   target: nro3
+edges_coupled:
+edges_opposite:
+ - source: nrc1
+   target: nro2
+ - source: nrc2
+   target: nro3
+
+# Design synthesis information
+base_channel_width: 2.5 #mm
+fold_angle: 120 #degrees
+u_turn_min_sep: 2 #mm
+default_padding: 1 #mm
+IO_side: 1  # Use following definition: assume normally opened side on the top, 1 means supply is on the right, 0 therwise
+linkage_dist: 1  # Defualt distance between individual linkage within the gate
