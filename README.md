@@ -5,7 +5,7 @@ Graph of connected nodes => manually editable vector graphics => printable 3D mo
 yaml graph definition => Inkscape graphics (to implement)
 - graph_editor.html: AI generated graph editing tool
 
-# Information from 2D vector drawing(to implement):
+# (to do) Information from 2D vector drawing:
 1. base body
   - solid body boundary
   - lines to cut from a larger piece
@@ -19,6 +19,7 @@ yaml graph definition => Inkscape graphics (to implement)
   - blind
   - through
 7. stiffness reduction cut regions
+Started: https://github.com/sichengw0826/PneumaticGateInkscape
 
 # 3D Model Generation with Blender Python API (sheet_generation_test.blend):
 - Make square hole
